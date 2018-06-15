@@ -4,7 +4,7 @@
 #from boto.sqs.message import Message
 import boto3
 #import re, sys, os, stat, subprocess, json, time, logging
-import requests, urllib2, time, json, soket
+import pprint,requests, urllib2, time, json, socket
 
 # #sqs = boto.sqs.connect_to_region('us-west-2')
 # #s3 = boto.connect_s3()
@@ -43,7 +43,9 @@ hostname_prd_******
 - attach volume
 '''
 
-
+def snapshot_get_tag(snapshot, tag_name, default=None):
+    tags = dict(map(lambda x: (x['Key'], x['Value']), snapshot.tags or []))
+    return tags.get(tag_name, default)
 
 def delete_all_volume(instance):
   for v in instance.block_device_mappings:
@@ -63,7 +65,7 @@ def delete_all_volume(instance):
 
 def find_snapshots(f):
   client=boto3.client('ec2')
-  r = client.describe_snapshots(Filters=[f])
+  r = client.describe_snapshots(Filters=f)
   return r
 
 def find_last_snapshot(snapshots):
@@ -71,12 +73,30 @@ def find_last_snapshot(snapshots):
 
 
 def create_filter(hostname, env):
-  f = '%s_%s_' % (hostname.upper(), env.upper())
+  f = '%s_%s_*' % (hostname.upper(), env.upper())
   snapshots_filter = [{'Name': 'tag:Name', 'Values': [f]}]
   return snapshots_filter
 
+def snapshot_service_groups(snapshots):
+  service_groups = []
+  for s in snapshots:
+    if s["Tags"][0]['Key'] == 'Name':
+      sg = s["Tags"][0]['Value'].split("_")[2]
+      if sg not in service_groups:
+        service_groups.append(sg) 
+  return service_groups      
+
+def last_snapshots(service_groups,snapshots):
+  snapshot_to_restore =[]
+  for sg in service_groups:
+    for s in snapshots:
+      if s["Tags"][0]['Key'] == 'Name' and s["Tags"][0]['Value'].split("_")[2] == sg
+      
+
 def main():
-  hotname = socket.gethostname()
+  #hostname = socket.gethostname()
+  hostname = "TCCAUSV1APL-EDICORE01"
+  print(hostname)
   inst_id = urllib2.urlopen("http://169.254.169.254/latest/meta-data/instance-id").read()
   response = urllib2.urlopen("http://169.254.169.254/latest/dynamic/instance-identity/document").read()
   data = json.loads(response)
@@ -84,6 +104,11 @@ def main():
   session = boto3.Session(region_name=region)
   ec2 = session.resource('ec2')
   instance = ec2.Instance(inst_id)
+  f = create_filter(hostname,"PRD")
+  snapshots = find_snapshots(f)
+  service_group = snapshot_service_groups(snapshots['Snapshots'])
+  
+ 
   #delete_all_volume(instance)
   #snapshots=find_snapshots(hostname)
 
