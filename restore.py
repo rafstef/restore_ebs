@@ -4,34 +4,11 @@
 #from boto.sqs.message import Message
 import boto3
 #import re, sys, os, stat, subprocess, json, time, logging
-import pprint,requests, urllib2, time, json, socket
+import getopt, sys, pprint,requests, urllib2, time, json, socket
 
-# #sqs = boto.sqs.connect_to_region('us-west-2')
-# #s3 = boto.connect_s3()
-# #ec2 = boto.ec2.connect_to_region('us-west-2')
-# #boto.log.info('Connections made')
-# def create_volume(session,snapshots,az,kms_key):
-#   volumes = []
-#   client=boto3.client('ec2')
-#   for s in snapshots:
-#     responce=client.create_volume(
-#       AvailabilityZone=az,
-#       Encrypted=True,
-#       KmsKeyId=kms_id,
-#       VolumeType='gp2',
-#       TagSpecifications=[
-#         {
-#           'Tags':[
-#             {
-# 	      'Key': 'Name',
-# 	      'Value': TagName,
-#   	    },
-#            ]
-#         },
-#       ]
-#     )
-#     volumes.append(response)
-#   return volumes
+ENV="PRD"
+
+
 
 '''
 - trovare tutti gli snapshots che hanno tag name iniziante con hostname
@@ -68,30 +45,32 @@ def find_snapshots(f):
   r = client.describe_snapshots(Filters=f)
   return r
 
-def find_last_snapshot(snapshots):
-   sorted(list_to_be_sorted, key=lambda k: k['date'], reverse=True)[0]
-
+def order_snapshots(snapshots):
+   return sorted(snapshots, key=lambda k: k['StartTime'], reverse=True)
+    
 
 def create_filter(hostname, env):
   f = '%s_%s_*' % (hostname.upper(), env.upper())
   snapshots_filter = [{'Name': 'tag:Name', 'Values': [f]}]
   return snapshots_filter
 
-def snapshot_service_groups(snapshots):
-  service_groups = []
-  for s in snapshots:
-    if s["Tags"][0]['Key'] == 'Name':
-      sg = s["Tags"][0]['Value'].split("_")[2]
-      if sg not in service_groups:
-        service_groups.append(sg) 
-  return service_groups      
+def snapshots_to_restore(ordered_snapshots):
+  volume_ids =[]
+  snapshots_to_restore = []
+  for s in (ordered_snapshots):
+    if s['VolumeId'] not in volume_ids:
+      volume_ids.append(s['VolumeId'])
+      snapshots_to_restore.append(s)
+  return snapshots_to_restore
+
 
 def last_snapshots(service_groups,snapshots):
   snapshot_to_restore =[]
   for sg in service_groups:
     for s in snapshots:
-      if s["Tags"][0]['Key'] == 'Name' and s["Tags"][0]['Value'].split("_")[2] == sg
-      
+      if( s["Tags"][0]['Key'] == 'Name' ) and ( s["Tags"][0]['Value'].split("_")[2] == sg ):
+	snapshot_to_restore.add(s)		
+  return snasphot_to_restore   
 
 def main():
   #hostname = socket.gethostname()
@@ -104,10 +83,15 @@ def main():
   session = boto3.Session(region_name=region)
   ec2 = session.resource('ec2')
   instance = ec2.Instance(inst_id)
-  f = create_filter(hostname,"PRD")
+  f = create_filter(hostname,ENV)
+  #find snapshots of vm
   snapshots = find_snapshots(f)
-  service_group = snapshot_service_groups(snapshots['Snapshots'])
+  #order snapshots
+  ordered_snapshots=order_snapshots(snapshots['Snapshots'])
+  s_to_restore = snapshots_to_restore(ordered_snapshots)
+  print(s_to_restore) 
   
+   
  
   #delete_all_volume(instance)
   #snapshots=find_snapshots(hostname)
