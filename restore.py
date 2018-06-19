@@ -13,6 +13,12 @@ import socket
 ENV="PRD"
 
 
+
+import logging as log
+log.basicConfig(format='%(asctime)s %(levelname)s %(message)s',
+                level=log.INFO,
+                datefmt='%m/%d/%Y %H:%M:%S')
+
 def snapshot_get_tag(snapshot, tag_name, default=None):
     tags = dict(map(lambda x: (x['Key'], x['Value']), snapshot.tags or []))
     return tags.get(tag_name, default)
@@ -67,64 +73,67 @@ def last_snapshots(service_groups,snapshots):
 def create_volumes(ec2,snapshots,az):
   volumes=[]
   for s in snapshots:
-    print("Encrypted = True")
-     
-    volume = ec2.create_volume(
-      SnapshotId=s['SnapshotId'],
-      AvailabilityZone=az,
-      VolumeType="gp2",
-      TagSpecifications=[
-          {
-            'ResourceType': 'volume',
-            'Tags': [
-                {
-                    'Key': 'Name',
-                    'Value': s['Description']
-                },
-            ]
-        },
-      ]    
-    )
-
-    print(volume.state)
+    try: 
+      volume = ec2.create_volume(
+        SnapshotId=s['SnapshotId'],
+        AvailabilityZone=az,
+        VolumeType="gp2",
+        TagSpecifications=[
+            {
+              'ResourceType': 'volume',
+              'Tags': [
+                  {
+                      'Key': 'Name',
+                      'Value': s['Description']
+                  },
+              ]
+          },
+        ]    
+      )
+    except Exception as e:
+      raise e
+      system.exit(2)
+    log.info(volume.state)
     state = volume.state
     while(state != "available"):
       time.sleep(1)
       volume.reload()
       state = volume.state 
-    print("volume %s available" % volume.id)   
+    log.info("volume %s available" % volume.id)   
     volumes.append(volume)
   return volumes
 
 def attach_volumes(volumes,instance):
   client=boto3.client('ec2')
   n = 0
-  print(instance.block_device_mappings)
   devs = [devicename["DeviceName"] for devicename in instance.block_device_mappings]
   tmp_devs = [re.sub(r'.*([a-z]{3,})[0-9]*', '\g<1>', s)
                 for s in devs]
-  print(tmp_devs)
   used_devs = set(tmp_devs)
   free_devs = ['sd'+c for c in string.ascii_lowercase[5:]]
   free_devs = list(set(free_devs) - used_devs)
   free_devs.sort()
-  print("free device %s" % free_devs)
+  log.info("free device %s" % free_devs)
   for v in volumes:
     print v    
-    response = client.attach_volume(
-      InstanceId=str(instance.id),
-      Device = free_devs[n],
-      VolumeId=v.id
-    )
+    try:
+      response = client.attach_volume(
+        InstanceId=str(instance.id),
+        Device = free_devs[n],
+        VolumeId=v.id
+      )
+    except Exception as e:
+      raise e
+      system.exit(2)
     n = n + 1
     if n > len(free_devs):
-      print("Max script device")
-      exit(1)  
+      print("Not enough devices")
+      system.exit(1)  
 
 def main():
   #hostname = socket.gethostname()
   hostname = "TCCAUSV1APL-EDICORE01"
-  print(hostname)
+  log.info("%s", hostname)
   inst_id = urllib2.urlopen("http://169.254.169.254/latest/meta-data/instance-id").read()
   response = urllib2.urlopen("http://169.254.169.254/latest/dynamic/instance-identity/document").read()
   data = json.loads(response)
@@ -135,16 +144,14 @@ def main():
   f = create_filter(hostname,ENV)
   #find snapshots of vm
   snapshots = find_snapshots(f)
-  print("snapshots: %s  \n\n\n" %  snapshots)
+  log.info("snapshots: %s  \n\n\n" %  snapshots)
   #order snapshots
   ordered_snapshots=order_snapshots(snapshots['Snapshots'])
-  print("ordered_snapshots: %s \n\n\n " %  ordered_snapshots)
+  log.info("ordered_snapshots: %s \n\n\n " %  ordered_snapshots)
   s_to_restore = snapshots_to_restore(ordered_snapshots)
-  print("s_to_restore:  %s \n\n\n " %  s_to_restore)
-  print(s_to_restore) 
+  log.info("s_to_restore:  %s \n\n\n " %  s_to_restore) 
   az = urllib2.urlopen("http://169.254.169.254/latest/meta-data/placement/availability-zone").read()
   volumes = create_volumes(ec2,s_to_restore,az)
-  print(volumes)
   delete_all_volume(ec2,instance)
   attach_volumes(volumes, instance) 
 
