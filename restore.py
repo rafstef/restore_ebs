@@ -9,6 +9,7 @@ import urllib2
 import time
 import json
 import socket
+import string
 
 ENV="PRD"
 
@@ -27,16 +28,16 @@ def delete_all_volume(ec2,instance):
   for v in instance.block_device_mappings:
     if v['DeviceName']==instance.root_device_name: 
       continue
-    print(v['DeviceName'])
-    print(v['Ebs']['VolumeId'])
+    log.info("Device name %s" % v['DeviceName'])
+    log.info(v['Ebs']['VolumeId'])
     volume = ec2.Volume(v['Ebs']['VolumeId'])
-    print("Detach volume %s", volume.id)
+    log.info("Detach volume %s", volume.id)
     instance.detach_volume(VolumeId=(v['Ebs']['VolumeId']))
     while volume.state != 'available':
       time.sleep(10)
       volume.reload()
       volume.state
-    print("Delete volume %s", volume.id)
+    log.info("Delete volume %s", volume.id)
     volume.delete()
 
 def find_snapshots(f):
@@ -115,7 +116,7 @@ def attach_volumes(volumes,instance):
   free_devs.sort()
   log.info("free device %s" % free_devs)
   for v in volumes:
-    print v    
+    log.info("Volume: %s" % v)
     try:
       response = client.attach_volume(
         InstanceId=str(instance.id),
@@ -127,7 +128,7 @@ def attach_volumes(volumes,instance):
       system.exit(2)
     n = n + 1
     if n > len(free_devs):
-      print("Not enough devices")
+      log.error("Not enough devices")
       system.exit(1)  
 
 def main():
@@ -144,12 +145,12 @@ def main():
   f = create_filter(hostname,ENV)
   #find snapshots of vm
   snapshots = find_snapshots(f)
-  log.info("snapshots: %s  \n\n\n" %  snapshots)
+  log.info("snapshots: %s  \n" %  snapshots)
   #order snapshots
   ordered_snapshots=order_snapshots(snapshots['Snapshots'])
-  log.info("ordered_snapshots: %s \n\n\n " %  ordered_snapshots)
+  log.info("ordered_snapshots: %s \n " %  ordered_snapshots)
   s_to_restore = snapshots_to_restore(ordered_snapshots)
-  log.info("s_to_restore:  %s \n\n\n " %  s_to_restore) 
+  log.info("s_to_restore:  %s \n " %  s_to_restore) 
   az = urllib2.urlopen("http://169.254.169.254/latest/meta-data/placement/availability-zone").read()
   volumes = create_volumes(ec2,s_to_restore,az)
   delete_all_volume(ec2,instance)
